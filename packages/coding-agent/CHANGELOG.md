@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### New Features
+
+- Added `pi web` with a local three-column browser workspace, shared JSONL sessions, model and thinking controls, prompt queues, attachments, reconnect recovery, and instance-scoped security.
+
+### Fixed
+
+- Added cross-process single-writer locks for persisted sessions used by TUI, RPC, and Web runtimes.
+- Fixed Pi Web transcript scrolling and streamed assistant updates.
+
 ## [0.84.0] - 2026-08-06
 
 ### New Features

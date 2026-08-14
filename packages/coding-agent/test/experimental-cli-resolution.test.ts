@@ -80,11 +80,12 @@ describe("experimental CLI command composition", () => {
 		});
 	});
 
-	test.each(["pi", "server", "client"] as const)("executes the parsed %s command", async (name) => {
+	test.each(["pi", "server", "client", "web"] as const)("executes the parsed %s command", async (name) => {
 		const context = {
 			runPi: vi.fn(() => undefined),
 			runServer: vi.fn(() => undefined),
 			runClient: vi.fn(() => undefined),
+			runWeb: vi.fn(() => undefined),
 		};
 		const result = await experimentalCli.execute(name === "pi" ? [] : [name], context);
 
@@ -92,5 +93,6 @@ describe("experimental CLI command composition", () => {
 		expect(context.runPi).toHaveBeenCalledTimes(name === "pi" ? 1 : 0);
 		expect(context.runServer).toHaveBeenCalledTimes(name === "server" ? 1 : 0);
 		expect(context.runClient).toHaveBeenCalledTimes(name === "client" ? 1 : 0);
+		expect(context.runWeb).toHaveBeenCalledTimes(name === "web" ? 1 : 0);
 	});
 });

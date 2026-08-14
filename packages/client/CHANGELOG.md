@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added a browser WebSocket transport and image/file attachment plus follow-up support on session handles.
+
 ## [0.84.0] - 2026-08-06
 
 ### Breaking Changes

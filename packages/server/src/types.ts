@@ -1,7 +1,9 @@
 import type {
 	Command,
+	JsonValue,
 	ModelMetadata,
 	ModelRef,
+	SessionAction,
 	SessionMetadata,
 	SessionPhase,
 	SessionSnapshot,
@@ -23,6 +25,7 @@ export type MaybePromise<T> = T | Promise<T>;
 
 export type PromptInput = Omit<Extract<Command, { command: "prompt" }>, "command" | "sessionId">;
 export type SteerInput = Omit<Extract<Command, { command: "steer" }>, "command" | "sessionId">;
+export type FollowUpInput = Omit<Extract<Command, { command: "follow_up" }>, "command" | "sessionId">;
 
 export interface CreateSessionOptions {
 	/** A collision-resistant ID assigned by PiServer. The service must persist this exact ID. */
@@ -44,9 +47,11 @@ export interface PiSessionRuntime {
 	getPhase(): SessionPhase;
 	prompt(input: PromptInput): Promise<void>;
 	steer(input: SteerInput): Promise<void>;
+	followUp(input: FollowUpInput): Promise<void>;
 	abort(): Promise<void>;
 	setModel(model: ModelRef): Promise<void>;
 	setThinking(thinkingLevel: ThinkingLevel): Promise<void>;
+	runAction(action: SessionAction, argument?: string): Promise<JsonValue>;
 	subscribe(listener: (event: PiSessionRuntimeEvent) => void): () => void;
 	dispose(): Promise<void>;
 }

@@ -249,6 +249,7 @@ ${chalk.bold("Commands:")}
   ${APP_NAME} list                      List installed extensions from settings
   ${APP_NAME} config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
   ${APP_NAME} auth <command>            Print credentials for external clients
+  ${APP_NAME} web [--port <n>]          Start the local Web GUI (use --no-open to skip browser launch)
   ${APP_NAME} <command> --help          Show help for install/remove/uninstall/update/list/config/auth
 
 ${chalk.bold("Options:")}
@@ -306,6 +307,9 @@ ${chalk.bold("Examples:")}
 
   # Interactive mode
   ${APP_NAME}
+
+  # Local Web GUI
+  ${APP_NAME} web
 
   # Interactive mode with initial prompt
   ${APP_NAME} "List all .ts files in src/"

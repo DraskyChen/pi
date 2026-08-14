@@ -16,6 +16,7 @@ export type CommandOptionParseResult<TValue> =
 
 export interface CommandOption<TValue> {
 	readonly name: `--${string}`;
+	readonly takesValue: boolean;
 	parse(value: string): CommandOptionParseResult<TValue>;
 }
 
@@ -23,11 +24,15 @@ export function valueOption<TValue>(
 	name: `--${string}`,
 	parse: (value: string) => CommandOptionParseResult<TValue>,
 ): CommandOption<TValue> {
-	return { name, parse };
+	return { name, takesValue: true, parse };
 }
 
 export function stringOption(name: `--${string}`): CommandOption<string> {
 	return valueOption(name, (value) => ({ ok: true, value }));
+}
+
+export function flagOption(name: `--${string}`): CommandOption<true> {
+	return { name, takesValue: false, parse: () => ({ ok: true, value: true }) };
 }
 
 export interface ParsedCommandInput {
@@ -174,13 +179,17 @@ export class Command<
 				break;
 			}
 
-			let value = equals === -1 ? undefined : argument.slice(equals + 1);
-			if (value === undefined) {
+			let value = option.takesValue ? (equals === -1 ? undefined : argument.slice(equals + 1)) : "true";
+			if (option.takesValue && value === undefined) {
 				const next = argv[index + 1];
 				if (next !== undefined && !next.startsWith("-")) {
 					value = next;
 					index++;
 				}
+			}
+			if (equals !== -1 && !option.takesValue) {
+				parsed.errors.push(`${name} does not accept a value`);
+				continue;
 			}
 			if (value === undefined || value === "") {
 				parsed.errors.push(`${name} requires a value`);

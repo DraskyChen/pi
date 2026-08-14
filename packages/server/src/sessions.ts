@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Command, EventEnvelope, SessionMetadata, SessionSnapshot } from "@earendil-works/pi-protocol";
+import type { Command, EventEnvelope, JsonValue, SessionMetadata, SessionSnapshot } from "@earendil-works/pi-protocol";
 import type { ByteConnection, ConnectionState } from "./connection.ts";
 import { PiServerError } from "./errors.ts";
 import type { CreateSessionOptions, PiServerService, PiSessionRuntime, PiSessionRuntimeEvent } from "./types.ts";
@@ -90,14 +90,23 @@ export class LiveSessionManager {
 			case "prompt": {
 				const live = this.requireAttached(connection, command.sessionId);
 				const session = await this.runOperation(connection, live, () =>
-					live.runtime.prompt({ text: command.text }),
+					live.runtime.prompt({ text: command.text, attachments: command.attachments }),
 				);
 				return { command: "prompt" as const, session };
 			}
 			case "steer": {
 				const live = this.requireAttached(connection, command.sessionId);
-				const session = await this.runOperation(connection, live, () => live.runtime.steer({ text: command.text }));
+				const session = await this.runOperation(connection, live, () =>
+					live.runtime.steer({ text: command.text, attachments: command.attachments }),
+				);
 				return { command: "steer" as const, session };
+			}
+			case "follow_up": {
+				const live = this.requireAttached(connection, command.sessionId);
+				const session = await this.runOperation(connection, live, () =>
+					live.runtime.followUp({ text: command.text, attachments: command.attachments }),
+				);
+				return { command: "follow_up" as const, session };
 			}
 			case "abort": {
 				const live = this.requireAttached(connection, command.sessionId);
@@ -115,6 +124,14 @@ export class LiveSessionManager {
 					live.runtime.setThinking(command.thinkingLevel),
 				);
 				return { command: "set_thinking" as const, session };
+			}
+			case "session_action": {
+				const live = this.requireAttached(connection, command.sessionId);
+				let output: JsonValue;
+				const session = await this.runOperation(connection, live, async () => {
+					output = await live.runtime.runAction(command.action, command.argument);
+				});
+				return { command: "session_action" as const, action: command.action, output: output!, session };
 			}
 		}
 	}

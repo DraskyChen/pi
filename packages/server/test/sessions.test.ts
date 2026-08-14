@@ -203,6 +203,27 @@ describe("PiServer Unix integration", () => {
 		expect(response).toMatchObject({ ok: true, result: { session: { id: "second", thinkingLevel: "medium" } } });
 	});
 
+	test("routes structured session actions through the acquired runtime", async () => {
+		const service = new MemoryService();
+		service.seed();
+		const { server } = await startServer(service);
+		const client = await connect(server);
+		await client.hello();
+		await attach(client, "session-1");
+
+		const response = await client.request({
+			command: "session_action",
+			sessionId: "session-1",
+			action: "rename",
+			argument: "Renamed",
+		});
+
+		expect(response).toMatchObject({
+			ok: true,
+			result: { command: "session_action", output: { name: "Renamed" }, session: { name: "Renamed" } },
+		});
+	});
+
 	test("broadcasts full snapshots and progress only to clients attached to that session", async () => {
 		const service = new MemoryService();
 		service.seed();
@@ -287,7 +308,7 @@ describe("PiServer Unix integration", () => {
 			(message) =>
 				message.type === "event" &&
 				message.event.type === "session_snapshot" &&
-				message.event.snapshot.model.id === "large",
+				message.event.snapshot.model?.id === "large",
 		);
 		const thinkingResponse = await first.request({
 			command: "set_thinking",
@@ -318,6 +339,9 @@ describe("PiServer Unix integration", () => {
 		const steer = await client.request({ command: "steer", sessionId: "session-1", text: "adjust" });
 		expect(steer).toMatchObject({ ok: true, result: { command: "steer" } });
 		expect(service.latestRuntime("session-1").steers).toEqual([{ text: "adjust" }]);
+		const followUp = await client.request({ command: "follow_up", sessionId: "session-1", text: "then verify" });
+		expect(followUp).toMatchObject({ ok: true, result: { command: "follow_up" } });
+		expect(service.latestRuntime("session-1").followUps).toEqual([{ text: "then verify" }]);
 		const abort = await client.request({ command: "abort", sessionId: "session-1" });
 		expect(abort).toMatchObject({ ok: true, result: { command: "abort" } });
 		expect(await prompt).toMatchObject({ ok: true, result: { command: "prompt", session: { phase: "idle" } } });

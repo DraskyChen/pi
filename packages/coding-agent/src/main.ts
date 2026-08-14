@@ -5,8 +5,11 @@
  * createAgentSession() options. The SDK does the heavy lifting.
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
+import { createLocalWebHost } from "@earendil-works/pi-server/web";
 import chalk from "chalk";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import {
@@ -18,6 +21,7 @@ import {
 	resolveCredentialForPrint,
 	validateCredentialPrintArgs,
 } from "./cli/credential-print.ts";
+import { type WebCommand, webCommand } from "./cli/experimental/commands/web.ts";
 import { processFileArguments } from "./cli/file-processor.ts";
 import { buildInitialMessage } from "./cli/initial-message.ts";
 import { listModels } from "./cli/list-models.ts";
@@ -55,8 +59,10 @@ import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
+import { openBrowser } from "./utils/open-browser.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
+import { CodingAgentService } from "./web/coding-agent-service.ts";
 
 const EXTENSION_LOAD_FAILURE_HINT = 'Hint: Start without extensions using "pi -ne".';
 
@@ -80,6 +86,19 @@ async function readPipedStdin(): Promise<string | undefined> {
 			resolve(data.trim() || undefined);
 		});
 		process.stdin.resume();
+	});
+}
+
+async function waitForWebShutdown(close: () => Promise<void>): Promise<void> {
+	await new Promise<void>((resolve) => {
+		let closing = false;
+		const shutdown = () => {
+			if (closing) return;
+			closing = true;
+			void close().finally(resolve);
+		};
+		process.once("SIGINT", shutdown);
+		process.once("SIGTERM", shutdown);
 	});
 }
 
@@ -527,6 +546,17 @@ export interface MainOptions {
 
 export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
+	let requestedWebCommand: WebCommand | undefined;
+	if (args[0] === "web") {
+		const result = webCommand.parse(args.slice(1));
+		if (!result.ok) {
+			for (const error of result.errors) console.error(chalk.red(`Error: ${error}`));
+			process.exitCode = 1;
+			return;
+		}
+		requestedWebCommand = result.command;
+		args = [];
+	}
 	const extensionFactories = [...builtInExtensions, ...(options?.extensionFactories ?? [])];
 	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
 	if (offlineMode) {
@@ -596,8 +626,9 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(0);
 	}
 
-	let appMode = resolveAppMode(parsed, process.stdin.isTTY, process.stdout.isTTY);
-	const shouldTakeOverStdout = appMode !== "interactive" && !isPlainRuntimeMetadataCommand(parsed);
+	let appMode = requestedWebCommand ? "rpc" : resolveAppMode(parsed, process.stdin.isTTY, process.stdout.isTTY);
+	const shouldTakeOverStdout =
+		!requestedWebCommand && appMode !== "interactive" && !isPlainRuntimeMetadataCommand(parsed);
 	if (shouldTakeOverStdout) {
 		takeOverStdout();
 	}
@@ -619,7 +650,13 @@ export async function main(args: string[], options?: MainOptions) {
 
 	// Experimental first-time setup: theme choice and analytics opt-in.
 	// Runs before any runtime services are created so the chosen settings apply everywhere.
-	if (appMode === "interactive" && !parsed.help && parsed.listModels === undefined && shouldRunFirstTimeSetup()) {
+	if (
+		!requestedWebCommand &&
+		appMode === "interactive" &&
+		!parsed.help &&
+		parsed.listModels === undefined &&
+		shouldRunFirstTimeSetup()
+	) {
 		await showFirstTimeSetup(startupSettingsManager);
 		time("firstTimeSetup");
 	}
@@ -857,6 +894,31 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(1);
 	}
 	time("createAgentSession");
+
+	if (requestedWebCommand) {
+		const packageDir = getPackageDir();
+		const packagedWebRoot = join(packageDir, "web");
+		const workspaceWebRoot = join(packageDir, "..", "web", "dist");
+		const webRoot = existsSync(packagedWebRoot) ? packagedWebRoot : workspaceWebRoot;
+		const service = new CodingAgentService({
+			defaultCwd: cwd,
+			agentDir,
+			sessionDir,
+			createRuntime,
+			initialRuntime: runtime,
+		});
+		const host = await createLocalWebHost(service, {
+			webRoot,
+			cwd,
+			port: requestedWebCommand.port,
+			onError: (error) => console.error(chalk.red(`Pi Web: ${error.message}`)),
+		});
+		console.log(`Pi Web: ${host.url}`);
+		if (requestedWebCommand.open) openBrowser(host.url);
+		await waitForWebShutdown(host.close);
+		await service.dispose();
+		return;
+	}
 
 	if (appMode !== "interactive" && !session.model) {
 		console.error(chalk.red(formatNoModelsAvailableMessage()));

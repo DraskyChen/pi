@@ -69,6 +69,26 @@ describe("experimental CLI commands", () => {
 		});
 	});
 
+	test("parses the local Web GUI command", () => {
+		expect(experimentalCli.parse(["web", "--port", "4310", "--no-open"])).toEqual({
+			ok: true,
+			command: { command: "web", port: 4310, open: false },
+		});
+		expect(experimentalCli.parse(["web"])).toEqual({
+			ok: true,
+			command: { command: "web", open: true },
+		});
+	});
+
+	test.each([
+		[["web", "--port", "0"], "--port must be an integer between 1 and 65535"],
+		[["web", "--port", "70000"], "--port must be an integer between 1 and 65535"],
+		[["web", "--port", "abc"], "--port must be an integer between 1 and 65535"],
+		[["web", "--no-open", "extra"], "The web command does not accept positional arguments"],
+	] as const)("rejects invalid Web GUI arguments %j", (argv, error) => {
+		expect(experimentalCli.parse(argv)).toEqual({ ok: false, errors: [error] });
+	});
+
 	test.each([
 		[["--auth-token", "secret"], { type: "token", token: "secret" }],
 		[["--auth-token-file", "/tmp/token"], { type: "file", path: "/tmp/token" }],
@@ -84,7 +104,7 @@ describe("experimental CLI commands", () => {
 		(argv) => {
 			const result = experimentalCli.parse(argv);
 			expect(result).toMatchObject({ ok: true, command: { command: argv[0] ?? "pi" } });
-			if (result.ok) expect(result.command.auth).toBeUndefined();
+			if (result.ok && result.command.command !== "web") expect(result.command.auth).toBeUndefined();
 		},
 	);
 

@@ -13,6 +13,7 @@ import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { CreateAgentSessionResult } from "./sdk.ts";
 import { assertSessionCwdExists } from "./session-cwd.ts";
 import { SessionManager } from "./session-manager.ts";
+import { SessionWriteLockOwner } from "./session-write-lock.ts";
 
 /**
  * Result returned by runtime creation.
@@ -79,17 +80,20 @@ export class AgentSessionRuntime {
 	private readonly createRuntime: CreateAgentSessionRuntimeFactory;
 	private _diagnostics: AgentSessionRuntimeDiagnostic[];
 	private _modelFallbackMessage?: string;
+	private readonly writeLockOwner: SessionWriteLockOwner;
 
 	constructor(
 		_session: AgentSession,
 		_services: AgentSessionServices,
 		createRuntime: CreateAgentSessionRuntimeFactory,
+		writeLockOwner: SessionWriteLockOwner,
 		_diagnostics: AgentSessionRuntimeDiagnostic[] = [],
 		_modelFallbackMessage?: string,
 	) {
 		this._session = _session;
 		this._services = _services;
 		this.createRuntime = createRuntime;
+		this.writeLockOwner = writeLockOwner;
 		this._diagnostics = _diagnostics;
 		this._modelFallbackMessage = _modelFallbackMessage;
 	}
@@ -177,6 +181,13 @@ export class AgentSessionRuntime {
 		this.session.dispose();
 	}
 
+	private async acquireReplacementLock(sessionManager: SessionManager): Promise<void> {
+		await this.writeLockOwner.replace(
+			sessionManager.isPersisted() ? sessionManager.getSessionDir() : undefined,
+			sessionManager.getSessionId(),
+		);
+	}
+
 	private apply(result: CreateAgentSessionRuntimeResult): void {
 		this._session = result.session;
 		this._services = result.services;
@@ -209,6 +220,7 @@ export class AgentSessionRuntime {
 		const previousSessionFile = this.session.sessionFile;
 		const sessionManager = SessionManager.open(sessionPath, undefined, options?.cwdOverride);
 		assertSessionCwdExists(sessionManager, this.cwd);
+		await this.acquireReplacementLock(sessionManager);
 		await this.teardownCurrent("resume", sessionManager.getSessionFile());
 		this.apply(
 			await this.createRuntime({
@@ -242,6 +254,7 @@ export class AgentSessionRuntime {
 			sessionManager.newSession({ parentSession: options.parentSession });
 		}
 
+		await this.acquireReplacementLock(sessionManager);
 		await this.teardownCurrent("new", sessionManager.getSessionFile());
 		this.apply(
 			await this.createRuntime({
@@ -296,6 +309,7 @@ export class AgentSessionRuntime {
 			if (!targetLeafId) {
 				const sessionManager = SessionManager.create(this.cwd, sessionDir);
 				sessionManager.newSession({ parentSession: currentSessionFile });
+				await this.acquireReplacementLock(sessionManager);
 				await this.teardownCurrent("fork", sessionManager.getSessionFile());
 				this.apply(
 					await this.createRuntime({
@@ -319,6 +333,7 @@ export class AgentSessionRuntime {
 			if (!forkedSessionPath) {
 				throw new Error("Failed to create forked session");
 			}
+			await this.acquireReplacementLock(sessionManager);
 			await this.teardownCurrent("fork", sessionManager.getSessionFile());
 			this.apply(
 				await this.createRuntime({
@@ -338,6 +353,7 @@ export class AgentSessionRuntime {
 		} else {
 			sessionManager.createBranchedSession(targetLeafId);
 		}
+		await this.acquireReplacementLock(sessionManager);
 		await this.teardownCurrent("fork", sessionManager.getSessionFile());
 		this.apply(
 			await this.createRuntime({
@@ -382,6 +398,7 @@ export class AgentSessionRuntime {
 
 		const sessionManager = SessionManager.open(destinationPath, sessionDir, cwdOverride);
 		assertSessionCwdExists(sessionManager, this.cwd);
+		await this.acquireReplacementLock(sessionManager);
 		await this.teardownCurrent("resume", sessionManager.getSessionFile());
 		this.apply(
 			await this.createRuntime({
@@ -402,6 +419,7 @@ export class AgentSessionRuntime {
 		});
 		this.beforeSessionInvalidate?.();
 		this.session.dispose();
+		await this.writeLockOwner.release();
 	}
 }
 
@@ -421,11 +439,22 @@ export async function createAgentSessionRuntime(
 	},
 ): Promise<AgentSessionRuntime> {
 	assertSessionCwdExists(options.sessionManager, options.cwd);
-	const result = await createRuntime(options);
+	const writeLockOwner = await SessionWriteLockOwner.create(
+		options.sessionManager.isPersisted() ? options.sessionManager.getSessionDir() : undefined,
+		options.sessionManager.getSessionId(),
+	);
+	let result: CreateAgentSessionRuntimeResult;
+	try {
+		result = await createRuntime(options);
+	} catch (error) {
+		await writeLockOwner.release();
+		throw error;
+	}
 	return new AgentSessionRuntime(
 		result.session,
 		result.services,
 		createRuntime,
+		writeLockOwner,
 		result.diagnostics,
 		result.modelFallbackMessage,
 	);

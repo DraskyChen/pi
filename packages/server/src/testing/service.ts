@@ -1,6 +1,8 @@
 import type {
+	JsonValue,
 	ModelMetadata,
 	ModelRef,
+	SessionAction,
 	SessionMetadata,
 	SessionPhase,
 	SessionSnapshot,
@@ -53,6 +55,7 @@ export class TestSessionRuntime implements PiSessionRuntime {
 	readonly disposed = new Deferred<void>();
 	disposeCount = 0;
 	readonly steers: PromptInput[] = [];
+	readonly followUps: PromptInput[] = [];
 	private readonly stored: StoredSession;
 	private readonly onDispose: () => void;
 	private readonly listeners = new Set<(event: PiSessionRuntimeEvent) => void>();
@@ -95,7 +98,7 @@ export class TestSessionRuntime implements PiSessionRuntime {
 						role: "assistant" as const,
 						content: [{ type: "text" as const, text: `reply:${input.text}` }],
 						status: "complete" as const,
-						model: this.stored.snapshot.model,
+						model: this.stored.snapshot.model ?? { provider: TEST_MODEL.provider, id: TEST_MODEL.id },
 						stopReason: "stop" as const,
 						timestamp: this.stored.snapshot.revision + 1,
 					}
@@ -104,7 +107,7 @@ export class TestSessionRuntime implements PiSessionRuntime {
 						role: "assistant" as const,
 						content: [{ type: "text" as const, text: "" }],
 						status: "aborted" as const,
-						model: this.stored.snapshot.model,
+						model: this.stored.snapshot.model ?? { provider: TEST_MODEL.provider, id: TEST_MODEL.id },
 						stopReason: "aborted" as const,
 						timestamp: this.stored.snapshot.revision + 1,
 					};
@@ -132,6 +135,11 @@ export class TestSessionRuntime implements PiSessionRuntime {
 		});
 	}
 
+	async followUp(input: PromptInput): Promise<void> {
+		if (this.getPhase() === "idle") throw new PiServerError("busy", "There is no active prompt for follow-up");
+		this.followUps.push(input);
+	}
+
 	async abort(): Promise<void> {
 		if (!this.pendingPrompt) throw new PiServerError("busy", "There is no active prompt to abort");
 		this.pendingPrompt.done.resolve("aborted");
@@ -145,6 +153,14 @@ export class TestSessionRuntime implements PiSessionRuntime {
 	async setThinking(thinkingLevel: ThinkingLevel): Promise<void> {
 		if (this.getPhase() !== "idle") throw new PiServerError("busy", "Session is busy");
 		this.update({ thinkingLevel });
+	}
+
+	async runAction(action: SessionAction, argument?: string): Promise<JsonValue> {
+		if (action === "rename") {
+			this.update({ name: argument ?? "" });
+			return { name: argument ?? "" };
+		}
+		return { action, argument: argument ?? null };
 	}
 
 	subscribe(listener: (event: PiSessionRuntimeEvent) => void): () => void {

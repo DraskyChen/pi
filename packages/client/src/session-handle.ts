@@ -1,8 +1,11 @@
 import type {
 	Command,
+	JsonValue,
 	ModelRef,
+	PromptAttachment,
 	ResultForCommand,
 	ServerEvent,
+	SessionAction,
 	SessionSnapshot,
 	ThinkingLevel,
 } from "@earendil-works/pi-protocol";
@@ -25,11 +28,13 @@ export interface SessionLease extends AsyncDisposable {
 	onEvent(listener: (event: ServerEvent) => void): Unsubscribe;
 	detach(): Promise<void>;
 	dispose(): Promise<void>;
-	prompt(text: string): Promise<SessionSnapshot>;
-	steer(text: string): Promise<SessionSnapshot>;
+	prompt(text: string, attachments?: readonly PromptAttachment[]): Promise<SessionSnapshot>;
+	steer(text: string, attachments?: readonly PromptAttachment[]): Promise<SessionSnapshot>;
+	followUp(text: string, attachments?: readonly PromptAttachment[]): Promise<SessionSnapshot>;
 	abort(): Promise<SessionSnapshot>;
 	setModel(model: ModelRef): Promise<SessionSnapshot>;
 	setThinking(thinkingLevel: ThinkingLevel): Promise<SessionSnapshot>;
+	runAction(action: SessionAction, argument?: string): Promise<{ output: JsonValue; session: SessionSnapshot }>;
 }
 
 export type PiSessionHandle = SessionLease;
@@ -85,12 +90,37 @@ export class SessionHandle implements SessionLease {
 		return this.dispose();
 	}
 
-	async prompt(text: string): Promise<SessionSnapshot> {
-		return (await this.#request({ command: "prompt", sessionId: this.id, text })).session;
+	async prompt(text: string, attachments?: readonly PromptAttachment[]): Promise<SessionSnapshot> {
+		return (
+			await this.#request({
+				command: "prompt",
+				sessionId: this.id,
+				text,
+				attachments: attachments ? [...attachments] : undefined,
+			})
+		).session;
 	}
 
-	async steer(text: string): Promise<SessionSnapshot> {
-		return (await this.#request({ command: "steer", sessionId: this.id, text })).session;
+	async steer(text: string, attachments?: readonly PromptAttachment[]): Promise<SessionSnapshot> {
+		return (
+			await this.#request({
+				command: "steer",
+				sessionId: this.id,
+				text,
+				attachments: attachments ? [...attachments] : undefined,
+			})
+		).session;
+	}
+
+	async followUp(text: string, attachments?: readonly PromptAttachment[]): Promise<SessionSnapshot> {
+		return (
+			await this.#request({
+				command: "follow_up",
+				sessionId: this.id,
+				text,
+				attachments: attachments ? [...attachments] : undefined,
+			})
+		).session;
 	}
 
 	async abort(): Promise<SessionSnapshot> {
@@ -103,6 +133,11 @@ export class SessionHandle implements SessionLease {
 
 	async setThinking(thinkingLevel: ThinkingLevel): Promise<SessionSnapshot> {
 		return (await this.#request({ command: "set_thinking", sessionId: this.id, thinkingLevel })).session;
+	}
+
+	async runAction(action: SessionAction, argument?: string): Promise<{ output: JsonValue; session: SessionSnapshot }> {
+		const result = await this.#request({ command: "session_action", sessionId: this.id, action, argument });
+		return { output: result.output, session: result.session };
 	}
 
 	#request<const TCommand extends SessionCommand>(command: TCommand): Promise<ResultForCommand<TCommand>> {

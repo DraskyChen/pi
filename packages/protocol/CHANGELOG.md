@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Replaced protocol v1 with v2, adding optional session models, prompt attachments, follow-up queue commands, and project-file DTOs.
+
 ## [0.84.0] - 2026-08-06
 
 ### Breaking Changes

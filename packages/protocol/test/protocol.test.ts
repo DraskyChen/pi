@@ -52,10 +52,10 @@ function itemMessage(item: unknown, type: "item_updated" | "item_finished" = "it
 }
 
 describe("protocol validation", () => {
-	test("uses protocol version 1", () => {
-		expect(PROTOCOL_VERSION).toBe(1);
-		expect(isSupportedProtocolVersion(1)).toBe(true);
-		expect(isSupportedProtocolVersion(2)).toBe(false);
+	test("rejects protocol version 1 after the version 2 replacement", () => {
+		expect(PROTOCOL_VERSION).toBe(2);
+		expect(isSupportedProtocolVersion(1)).toBe(false);
+		expect(isSupportedProtocolVersion(2)).toBe(true);
 		expect(isSupportedProtocolVersion(2.5)).toBe(false);
 	});
 
@@ -81,7 +81,45 @@ describe("protocol validation", () => {
 		expect(() => parseServerMessage(JSON.stringify(serverHello))).toThrow(ProtocolValidationError);
 	});
 
-	test("rejects image input while the MVP remains text-only", () => {
+	test("accepts validated image and file attachments on prompt input", () => {
+		const message = {
+			type: "request",
+			id: "request-1",
+			request: {
+				command: "prompt",
+				sessionId: "session-1",
+				text: "inspect",
+				attachments: [
+					{ type: "image", data: "YWJj", mimeType: "image/png", name: "screen.png" },
+					{ type: "file", data: "aGVsbG8=", mimeType: "text/plain", name: "notes.txt" },
+				],
+			},
+		} as const;
+		expect(parseClientMessage(message)).toEqual(message);
+	});
+
+	test("accepts follow-up commands", () => {
+		const message = {
+			type: "request",
+			id: "follow-up-1",
+			request: { command: "follow_up", sessionId: "session-1", text: "after this" },
+		} as const;
+		expect(parseClientMessage(message)).toEqual(message);
+	});
+
+	test.each(["rename", "bash", "stats", "compact", "export_html", "export_jsonl", "reload"] as const)(
+		"accepts the %s session action",
+		(action) => {
+			const message = {
+				type: "request",
+				id: `action-${action}`,
+				request: { command: "session_action", sessionId: "session-1", action, argument: "value" },
+			} as const;
+			expect(parseClientMessage(message)).toEqual(message);
+		},
+	);
+
+	test("rejects malformed attachment metadata", () => {
 		expect(() =>
 			parseClientMessage({
 				type: "request",
@@ -90,7 +128,7 @@ describe("protocol validation", () => {
 					command: "prompt",
 					sessionId: "session-1",
 					text: "inspect",
-					images: [{ type: "image", data: "abc", mimeType: "image/png" }],
+					attachments: [{ type: "file", data: "abc", mimeType: "", name: "" }],
 				},
 			}),
 		).toThrow(ProtocolValidationError);

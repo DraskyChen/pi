@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added authenticated same-origin WebSocket transport, a loopback-only local Web host, and cwd-confined project file enumeration.
+
 ## [0.84.0] - 2026-08-06
 
 ### Breaking Changes

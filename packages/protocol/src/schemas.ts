@@ -1,6 +1,6 @@
 import Type, { type Static } from "typebox";
 
-export const PROTOCOL_VERSION = 1 as const;
+export const PROTOCOL_VERSION = 2 as const;
 
 const IdSchema = Type.String({ minLength: 1 });
 const TimestampSchema = Type.Integer({ minimum: 0 });
@@ -245,7 +245,7 @@ export const SessionSnapshotSchema = StrictObject({
 	createdAt: TimestampSchema,
 	updatedAt: TimestampSchema,
 	phase: SessionPhaseSchema,
-	model: ModelRefSchema,
+	model: Type.Optional(ModelRefSchema),
 	thinkingLevel: ThinkingLevelSchema,
 	attached: Type.Boolean(),
 	locked: Type.Boolean(),
@@ -283,9 +283,34 @@ export const ProtocolErrorSchema = StrictObject({
 export type ProtocolErrorCode = Static<typeof ProtocolErrorCodeSchema>;
 export type ProtocolError = Static<typeof ProtocolErrorSchema>;
 
+export const PromptAttachmentSchema = Type.Union([
+	StrictObject({
+		type: Type.Literal("image"),
+		data: Type.String({ minLength: 1 }),
+		mimeType: Type.String({ minLength: 1 }),
+		name: Type.Optional(Type.String({ minLength: 1 })),
+	}),
+	StrictObject({
+		type: Type.Literal("file"),
+		data: Type.String({ minLength: 1 }),
+		mimeType: Type.String({ minLength: 1 }),
+		name: Type.String({ minLength: 1 }),
+	}),
+]);
+export type PromptAttachment = Static<typeof PromptAttachmentSchema>;
+
+export const ProjectFileSchema = StrictObject({
+	path: Type.String({ minLength: 1 }),
+	name: Type.String({ minLength: 1 }),
+	type: Type.Union([Type.Literal("file"), Type.Literal("directory")]),
+	size: Type.Optional(Type.Integer({ minimum: 0 })),
+});
+export type ProjectFile = Static<typeof ProjectFileSchema>;
+
 const PromptPayloadProperties = {
 	sessionId: IdSchema,
 	text: Type.String(),
+	attachments: Type.Optional(Type.Array(PromptAttachmentSchema)),
 } as const;
 
 export const ListCommandSchema = StrictObject({ command: Type.Literal("list") });
@@ -300,6 +325,7 @@ export const AttachCommandSchema = StrictObject({ command: Type.Literal("attach"
 export const DetachCommandSchema = StrictObject({ command: Type.Literal("detach"), sessionId: IdSchema });
 export const PromptCommandSchema = StrictObject({ command: Type.Literal("prompt"), ...PromptPayloadProperties });
 export const SteerCommandSchema = StrictObject({ command: Type.Literal("steer"), ...PromptPayloadProperties });
+export const FollowUpCommandSchema = StrictObject({ command: Type.Literal("follow_up"), ...PromptPayloadProperties });
 export const AbortCommandSchema = StrictObject({ command: Type.Literal("abort"), sessionId: IdSchema });
 export const SetModelCommandSchema = StrictObject({
 	command: Type.Literal("set_model"),
@@ -311,6 +337,22 @@ export const SetThinkingCommandSchema = StrictObject({
 	sessionId: IdSchema,
 	thinkingLevel: ThinkingLevelSchema,
 });
+export const SessionActionSchema = Type.Union([
+	Type.Literal("rename"),
+	Type.Literal("bash"),
+	Type.Literal("stats"),
+	Type.Literal("compact"),
+	Type.Literal("export_html"),
+	Type.Literal("export_jsonl"),
+	Type.Literal("reload"),
+]);
+export type SessionAction = Static<typeof SessionActionSchema>;
+export const SessionActionCommandSchema = StrictObject({
+	command: Type.Literal("session_action"),
+	sessionId: IdSchema,
+	action: SessionActionSchema,
+	argument: Type.Optional(Type.String()),
+});
 export const CommandSchema = Type.Union([
 	ListCommandSchema,
 	CreateCommandSchema,
@@ -318,9 +360,11 @@ export const CommandSchema = Type.Union([
 	DetachCommandSchema,
 	PromptCommandSchema,
 	SteerCommandSchema,
+	FollowUpCommandSchema,
 	AbortCommandSchema,
 	SetModelCommandSchema,
 	SetThinkingCommandSchema,
+	SessionActionCommandSchema,
 ]);
 export type Command = Static<typeof CommandSchema>;
 export type CommandName = Command["command"];
@@ -341,6 +385,10 @@ export const SteerResultSchema = StrictObject({
 	command: Type.Literal("steer"),
 	session: SessionSnapshotSchema,
 });
+export const FollowUpResultSchema = StrictObject({
+	command: Type.Literal("follow_up"),
+	session: SessionSnapshotSchema,
+});
 export const AbortResultSchema = StrictObject({
 	command: Type.Literal("abort"),
 	session: SessionSnapshotSchema,
@@ -351,6 +399,12 @@ export const SetModelResultSchema = StrictObject({
 });
 export const SetThinkingResultSchema = StrictObject({
 	command: Type.Literal("set_thinking"),
+	session: SessionSnapshotSchema,
+});
+export const SessionActionResultSchema = StrictObject({
+	command: Type.Literal("session_action"),
+	action: SessionActionSchema,
+	output: JsonValueSchema,
 	session: SessionSnapshotSchema,
 });
 
@@ -369,9 +423,11 @@ export const CommandResultSchema = Type.Union([
 	DetachResultSchema,
 	PromptResultSchema,
 	SteerResultSchema,
+	FollowUpResultSchema,
 	AbortResultSchema,
 	SetModelResultSchema,
 	SetThinkingResultSchema,
+	SessionActionResultSchema,
 ]);
 export type CommandResult = Static<typeof CommandResultSchema>;
 
